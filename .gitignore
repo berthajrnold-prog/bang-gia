@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# runtime cache
+/.scrape-cache.json
+/scripts/audit-result.json
