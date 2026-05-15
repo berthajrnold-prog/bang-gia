@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: bang-gia
+    runtime: node
+    plan: free
+    buildCommand: npm install && npx playwright install --with-deps chromium && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20.20.2
+      - key: GOOGLE_SERVICE_ACCOUNT_KEY
+        sync: false  # set manually in Render dashboard
+      - key: SOURCE_SHEET_ID
+        sync: false
+      - key: HISTORY_SHEET_ID
+        sync: false
