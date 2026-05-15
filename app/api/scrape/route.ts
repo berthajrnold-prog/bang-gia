@@ -17,8 +17,8 @@ export async function POST() {
 
     const timestamp = new Date().toISOString();
 
-    // Browser concurrency: 3 pages parallel = good balance speed vs memory
-    const BATCH_SIZE = 3;
+    // Concurrency: 1 = safe on 1GB VPS (avoids OOM with Playwright Chromium)
+    const BATCH_SIZE = 1;
     const scrapedData: Array<{
       product: string; type: string; storage: string; shop: string;
       price: string | null; link: string | null; category: string; priceChange: string;
