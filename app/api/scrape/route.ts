@@ -17,8 +17,8 @@ export async function POST() {
 
     const timestamp = new Date().toISOString();
 
-    // Concurrency: 1 = safe on 1GB VPS (avoids OOM with Playwright Chromium)
-    const BATCH_SIZE = 1;
+    // Concurrency: 3 = balanced for 2GB VPS (3 Playwright pages × ~250MB ≈ 750MB)
+    const BATCH_SIZE = 3;
     const scrapedData: Array<{
       product: string; type: string; storage: string; shop: string;
       price: string | null; link: string | null; category: string; priceChange: string;
