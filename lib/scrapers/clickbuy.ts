@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
-import { fetchHtml, formatVNPrice } from "./common";
+import { chromium, type Browser } from "playwright";
+import { fetchHtml, formatVNPrice, parseVNPrice } from "./common";
 
 const DA_NANG_COOKIES = [
   { name: "city", value: "da-nang", domain: ".clickbuy.com.vn" },
@@ -82,17 +83,80 @@ export async function scrapeClickBuy(
     return formatVNPrice(String(variantMap.get(wantedStorage)!));
   }
 
-  // Page has only one configuration (no variants, no storage in title) →
-  // use the main displayed price for any requested storage
+  // Fallback: check if page has .list-variant__item storage buttons
+  // (Samsung pages don't have related_versions but have these clickable storage buttons)
+  if (wantedStorage) {
+    const storageButtons = $(".list-variant__item.check");
+    if (storageButtons.length > 1) {
+      // Need Playwright interaction — click and read updated price
+      const clickedPrice = await clickStorageAndGetPrice(url, wantedStorage);
+      if (clickedPrice) return clickedPrice;
+    }
+  }
+
+  // Page has only one configuration → use main displayed price
   if (mainPrice) {
     return formatVNPrice(String(mainPrice));
   }
 
-  // Last resort: lowest in variant map
   if (variantMap.size > 0) {
     const lowest = Math.min(...variantMap.values());
     return formatVNPrice(String(lowest));
   }
 
   return null;
+}
+
+// Click storage variant button and read updated price (for single-URL multi-variant pages)
+async function clickStorageAndGetPrice(url: string, wantedStorage: string): Promise<string | null> {
+  const browser = (globalThis as { __scraperBrowser?: Browser }).__scraperBrowser
+    ?? (await chromium.launch({ headless: true, args: ["--no-sandbox"] }));
+  if (!(globalThis as { __scraperBrowser?: Browser }).__scraperBrowser) {
+    (globalThis as { __scraperBrowser?: Browser }).__scraperBrowser = browser;
+  }
+
+  const ctx = await browser.newContext({
+    locale: "vi-VN",
+    timezoneId: "Asia/Ho_Chi_Minh",
+    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+  });
+  await ctx.addCookies(DA_NANG_COOKIES.map((c) => ({ ...c, path: "/" })));
+
+  try {
+    const page = await ctx.newPage();
+    await page.route("**/*", (route) => {
+      const t = route.request().resourceType();
+      if (["image", "font", "media", "stylesheet"].includes(t)) return route.abort();
+      return route.continue();
+    });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await page.waitForTimeout(1500);
+
+    // Find storage button matching wantedStorage (e.g., "512gb")
+    // Storage labels in DOM: "256GB", "512GB", "1TB" (raw text)
+    const wantedLabel = wantedStorage.toUpperCase();
+    const wantedNum = wantedLabel.match(/\d+/)?.[0];
+    if (!wantedNum) return null;
+
+    // ClickBuy uses real DOM events — must use Playwright trusted .click()
+    const buttonLocator = page.locator(`p[data-name*="${wantedNum}"]`).first();
+    const found = (await buttonLocator.count()) > 0;
+    if (!found) return null;
+
+    await buttonLocator.click({ timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(2000);
+
+    const priceText = await page
+      .locator(".product-price .js-price, .js-price.price")
+      .first()
+      .textContent()
+      .catch(() => null);
+    if (priceText) {
+      const parsed = parseVNPrice(priceText.trim());
+      if (parsed) return formatVNPrice(parsed);
+    }
+    return null;
+  } finally {
+    await ctx.close().catch(() => {});
+  }
 }
