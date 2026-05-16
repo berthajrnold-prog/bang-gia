@@ -65,8 +65,18 @@ export async function scrapeClickBuy(
     // Step 2: Check .related_versions__item cards for storage-specific prices
     // (iPhone-style pages have these with data-price reflecting current condition)
     if (storage) {
-      const wantedNum = storage.match(/\d+/)?.[0];
+      // Storage parsing:
+      // - "256GB" → 256
+      // - "1TB" → 1
+      // - "8/256" (Android RAM/Storage) → 256 (NOT 8 which is RAM)
       const wantedIsTB = /TB/i.test(storage);
+      let wantedNum: string | undefined;
+      const slashMatch = storage.match(/\d+\s*\/\s*(\d+)/);
+      if (slashMatch) {
+        wantedNum = slashMatch[1];
+      } else {
+        wantedNum = storage.match(/\d+/)?.[0];
+      }
       if (wantedNum) {
         const variantPrice = await page.evaluate(
           ({ num, isTB }) => {
@@ -92,8 +102,9 @@ export async function scrapeClickBuy(
         }
 
         // Step 3: Fallback — click storage button (.list-variant__item.check)
+        // data-name may be "256GB" or full text like "8GB 256GB" → use partial match
         const label = wantedIsTB ? `${wantedNum}TB` : `${wantedNum}GB`;
-        const storageLocator = page.locator(`p[data-name="${label}"]`).first();
+        const storageLocator = page.locator(`p[data-name*="${label}"]`).first();
         if ((await storageLocator.count()) > 0) {
           await storageLocator.click({ timeout: 5000 }).catch(() => {});
           await page.waitForTimeout(1500);

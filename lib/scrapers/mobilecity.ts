@@ -56,6 +56,24 @@ export async function scrapeMobileCity(url: string, storage?: string): Promise<s
         }, wantedNum);
         if (clicked) await page.waitForTimeout(1200);
       }
+
+      // Click 4G/5G network variant if specified (e.g., "6/128 - 5G")
+      const networkMatch = storage.match(/\b(4G|5G)\b/i);
+      if (networkMatch) {
+        const network = networkMatch[1].toUpperCase();
+        const clickedNet = await page.evaluate((net) => {
+          const buttons = Array.from(document.querySelectorAll(".aspect-item, .attribute-item"));
+          for (const btn of buttons) {
+            const txt = (btn.textContent || "").trim();
+            if (txt === net) {
+              (btn as HTMLElement).click();
+              return true;
+            }
+          }
+          return false;
+        }, network);
+        if (clickedNet) await page.waitForTimeout(1200);
+      }
     }
 
     // Get current main price
