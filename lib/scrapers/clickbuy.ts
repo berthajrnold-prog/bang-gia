@@ -77,25 +77,28 @@ export async function scrapeClickBuy(
       } else {
         wantedNum = storage.match(/\d+/)?.[0];
       }
+      // Detect network: explicit 5G, explicit 4G, or default (= 4G)
+      const wantedNetwork = /\b5G\b/i.test(storage) ? "5G" : "4G";
       if (wantedNum) {
         const variantPrice = await page.evaluate(
-          ({ num, isTB }) => {
+          ({ num, isTB, net }) => {
             const cards = Array.from(document.querySelectorAll(".related_versions__item"));
-            for (const card of cards) {
-              const txt = (card.textContent || "").replace(/\s+/g, " ");
-              // Match storage in card text (e.g., "256GB" or "1TB")
-              const unit = isTB ? "TB" : "GB";
-              const re = new RegExp(`\\b${num}\\s*${unit}\\b`, "i");
-              if (re.test(txt)) {
-                const dp = card.querySelector("[data-price]")?.getAttribute("data-price");
-                if (dp) return parseInt(dp, 10);
-                const pm = txt.match(/(\d{1,3}(?:[.,]\d{3})+)/);
-                if (pm) return parseInt(pm[1].replace(/[.,]/g, ""), 10);
-              }
-            }
+            const unit = isTB ? "TB" : "GB";
+            const storageRe = new RegExp(`\\b${num}\\s*${unit}\\b`, "i");
+            // Prefer card matching BOTH storage AND network
+            const networkRe = new RegExp(`\\(?\\b${net}\\b\\)?`, "i");
+            const matchingStorage = cards.filter((c) => storageRe.test((c.textContent || "")));
+            // Try to find one that also mentions the requested network
+            const exactMatch = matchingStorage.find((c) => networkRe.test((c.textContent || "")));
+            const target = exactMatch ?? matchingStorage[0];
+            if (!target) return null;
+            const dp = target.querySelector("[data-price]")?.getAttribute("data-price");
+            if (dp) return parseInt(dp, 10);
+            const pm = (target.textContent || "").match(/(\d{1,3}(?:[.,]\d{3})+)/);
+            if (pm) return parseInt(pm[1].replace(/[.,]/g, ""), 10);
             return null;
           },
-          { num: wantedNum, isTB: wantedIsTB }
+          { num: wantedNum, isTB: wantedIsTB, net: wantedNetwork }
         );
         if (variantPrice && variantPrice >= 1_000_000) {
           return formatVNPrice(String(variantPrice));
