@@ -10,6 +10,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ExternalLink, TrendingDown, TrendingUp, Minus } from "lucide-react";
+import { orderShops } from "@/lib/shops";
 
 export interface PriceRow {
   product: string;
@@ -31,11 +32,7 @@ interface GroupedProduct {
   shops: Record<string, { price: string | null; link: string | null; priceChange: string; scrapeError?: string | null }>;
 }
 
-const IPHONE_SHOPS = ["Asmart", "Di Động Xanh", "Click Buy", "Chung Mobile"];
-const ANDROID_SHOPS = ["Asmart", "Mobile City", "Click Buy", "Alo Việt"];
-
-function groupRows(rows: PriceRow[], category: string): GroupedProduct[] {
-  const shops = category === "iPhone" ? IPHONE_SHOPS : ANDROID_SHOPS;
+function groupRows(rows: PriceRow[], category: string, shops: string[]): GroupedProduct[] {
   const map = new Map<string, GroupedProduct>();
 
   for (const row of rows) {
@@ -100,14 +97,12 @@ function PriceCell({
           <span className={`font-medium text-sm ${isCheapest ? "text-green-700" : ""}`}>
             {price}đ
           </span>
-        ) : (
-          <Badge
-            variant="destructive"
-            className="text-[10px] px-1 py-0"
-            title={scrapeError ?? "Không cào được giá"}
-          >
+        ) : scrapeError ? (
+          <Badge variant="destructive" className="text-[10px] px-1 py-0" title={scrapeError}>
             Lỗi cào
           </Badge>
+        ) : (
+          <span className="text-muted-foreground text-sm">—</span>
         )}
         {priceChange === "up" && <TrendingUp className="w-3 h-3 text-red-500" />}
         {priceChange === "down" && <TrendingDown className="w-3 h-3 text-green-500" />}
@@ -134,8 +129,8 @@ function ProductTable({
   rows: PriceRow[];
   category: "iPhone" | "Android";
 }) {
-  const shops = category === "iPhone" ? IPHONE_SHOPS : ANDROID_SHOPS;
-  const grouped = groupRows(rows, category);
+  const shops = orderShops(category, rows.filter((r) => r.category === category).map((r) => r.shop));
+  const grouped = groupRows(rows, category, shops);
 
   if (grouped.length === 0) {
     return (

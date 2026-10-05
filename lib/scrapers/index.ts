@@ -4,6 +4,7 @@ import { scrapeAsmart } from "./asmart";
 import { scrapeChungMobile } from "./chungmobile";
 import { scrapeMobileCity } from "./mobilecity";
 import { scrapeAloViet } from "./aloviet";
+import { scrapeFpt, scrapeTgdd, scrapeViettel, scrapeChoLon } from "./newshops";
 
 export interface ScrapeContext {
   storage?: string;
@@ -18,6 +19,10 @@ const DOMAIN_RULES: Array<{ match: string; scraper: ScraperFn; name: string }> =
   { match: "chungmobile", scraper: scrapeChungMobile, name: "Chung Mobile" },
   { match: "mobilecity", scraper: scrapeMobileCity, name: "Mobile City" },
   { match: "aloviet", scraper: scrapeAloViet, name: "Alo Việt" },
+  { match: "fptshop", scraper: scrapeFpt, name: "FPT" },
+  { match: "thegioididong", scraper: scrapeTgdd, name: "TGDĐ" },
+  { match: "viettelstore", scraper: scrapeViettel, name: "Viettel" },
+  { match: "dienmaycholon", scraper: scrapeChoLon, name: "Chợ lớn" },
 ];
 
 export async function scrapePrice(

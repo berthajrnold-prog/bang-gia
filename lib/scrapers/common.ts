@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import axios from "axios";
 import { fetchHtmlWithBrowser, type FetchOptions } from "./browser";
 
 // All scrapers now use Playwright (browser-rendered HTML) for consistency
@@ -63,6 +64,23 @@ function extractFromJsonLd(html: string): string | null {
     } catch {}
   }
   return null;
+}
+
+// Plain HTTP fetch + JSON-LD price. For shops whose bot protection blocks headless
+// Chromium but serves normal HTML to regular requests (e.g. Viettel Store / Akamai).
+export async function scrapeJsonLdViaHttp(url: string): Promise<string | null> {
+  const res = await axios.get<string>(url, {
+    timeout: 20000,
+    responseType: "text",
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+      "Accept-Language": "vi-VN,vi;q=0.9",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    },
+  });
+  const price = extractFromJsonLd(res.data);
+  return price ? formatVNPrice(price) : null;
 }
 
 // Meta tags: og:price, itemprop price

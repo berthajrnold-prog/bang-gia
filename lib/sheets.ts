@@ -1,4 +1,5 @@
 import { google } from "googleapis";
+import { orderShops } from "./shops";
 
 export interface PriceEntry {
   product: string;
@@ -20,9 +21,6 @@ export interface HistoryRow {
   link: string;
   price_change: string;
 }
-
-const IPHONE_SHOPS = ["Asmart", "Di Động Xanh", "Click Buy", "Chung Mobile"];
-const ANDROID_SHOPS = ["Asmart", "Mobile City", "Click Buy", "Alo Việt"];
 
 // Rows to skip when parsing the source sheet
 const SKIP_VALUES = new Set([
@@ -70,77 +68,57 @@ export async function readPriceSheet(): Promise<PriceEntry[]> {
   const rows = sheet?.data?.[0]?.rowData ?? [];
   const entries: PriceEntry[] = [];
 
-  // Track last seen product/type for merged cells (same product spans multiple rows)
-  let lastIphoneProduct = "";
-  let lastIphoneType = "";
-  let lastAndroidProduct = "";
-  let lastAndroidType = "";
+  // Locate sections from the header row ("Dòng | Loại | Dung Lượng | shop… ")
+  // instead of hardcoding column numbers, so added shop columns don't break parsing.
+  const headerIdx = rows.findIndex((r) =>
+    (r.values ?? []).some((c) => (c.formattedValue ?? "").trim().toLowerCase() === "dòng")
+  );
+  if (headerIdx < 0) return entries;
+  const header = (rows[headerIdx].values ?? []).map((c) => (c.formattedValue ?? "").trim());
+  const titles = (rows[headerIdx - 1]?.values ?? []).map((c) => (c.formattedValue ?? "").trim().toLowerCase());
 
-  for (const row of rows) {
+  const sections = header
+    .map((h, i) => (h.toLowerCase() === "dòng" ? i : -1))
+    .filter((i) => i >= 0)
+    .map((start, n) => {
+      const shops: Array<{ name: string; col: number }> = [];
+      for (let c = start + 3; c < header.length && header[c] && header[c].toLowerCase() !== "dòng"; c++) {
+        shops.push({ name: header[c], col: c });
+      }
+      const category: "iPhone" | "Android" =
+        titles[start] === "android" ? "Android" : titles[start] === "iphone" ? "iPhone" : n === 0 ? "iPhone" : "Android";
+      return { start, shops, category, lastProduct: "", lastType: "" };
+    });
+
+  for (const row of rows.slice(headerIdx + 1)) {
     const cells = row.values ?? [];
+    for (const sec of sections) {
+      const rawProduct = cells[sec.start]?.formattedValue ?? "";
+      const rawType = cells[sec.start + 1]?.formattedValue ?? "";
+      const storage = cells[sec.start + 2]?.formattedValue ?? "";
 
-    // iPhone side: cols 0-6
-    const rawIphoneProduct = cells[0]?.formattedValue ?? "";
-    const rawIphoneType = cells[1]?.formattedValue ?? "";
-    const iphoneStorage = cells[2]?.formattedValue ?? "";
+      // Carry forward merged cell values (same product spans multiple rows)
+      if (rawProduct && !isSkippable(rawProduct)) sec.lastProduct = rawProduct;
+      if (rawType && !isSkippable(rawType)) sec.lastType = rawType;
 
-    // Carry forward merged cell values
-    if (rawIphoneProduct && !isSkippable(rawIphoneProduct)) {
-      lastIphoneProduct = rawIphoneProduct;
-    }
-    if (rawIphoneType && !isSkippable(rawIphoneType)) {
-      lastIphoneType = rawIphoneType;
-    }
-
-    // Only process if we have a storage (indicates a real data row)
-    if (iphoneStorage && !isSkippable(iphoneStorage) && lastIphoneProduct) {
-      IPHONE_SHOPS.forEach((shop, i) => {
-        const cell = cells[3 + i];
+      // Only process if we have a storage (indicates a real data row)
+      if (!storage || isSkippable(storage) || !sec.lastProduct) continue;
+      for (const { name, col } of sec.shops) {
+        const cell = cells[col];
         const price = normalizeSheetPrice(cell?.formattedValue ?? null);
         const link = cell?.hyperlink ?? null;
         if (price || link) {
           entries.push({
-            product: lastIphoneProduct,
-            type: lastIphoneType,
-            storage: iphoneStorage,
-            shop,
+            product: sec.lastProduct,
+            type: sec.lastType,
+            storage,
+            shop: name,
             price,
             link,
-            category: "iPhone",
+            category: sec.category,
           });
         }
-      });
-    }
-
-    // Android side: cols 8-14 (col 7 is separator)
-    const rawAndroidProduct = cells[8]?.formattedValue ?? "";
-    const rawAndroidType = cells[9]?.formattedValue ?? "";
-    const androidStorage = cells[10]?.formattedValue ?? "";
-
-    if (rawAndroidProduct && !isSkippable(rawAndroidProduct)) {
-      lastAndroidProduct = rawAndroidProduct;
-    }
-    if (rawAndroidType && !isSkippable(rawAndroidType)) {
-      lastAndroidType = rawAndroidType;
-    }
-
-    if (androidStorage && !isSkippable(androidStorage) && lastAndroidProduct) {
-      ANDROID_SHOPS.forEach((shop, i) => {
-        const cell = cells[11 + i];
-        const price = normalizeSheetPrice(cell?.formattedValue ?? null);
-        const link = cell?.hyperlink ?? null;
-        if (price || link) {
-          entries.push({
-            product: lastAndroidProduct,
-            type: lastAndroidType,
-            storage: androidStorage,
-            shop,
-            price,
-            link,
-            category: "Android",
-          });
-        }
-      });
+      }
     }
   }
 
@@ -231,36 +209,15 @@ async function writeCurrentPricesTab(
   rows.push([`Cập nhật lúc: ${new Date(timestamp).toLocaleString("vi-VN")}`]);
   rows.push([]); // empty separator
 
-  // iPhone section
-  rows.push(["IPHONE"]);
-  rows.push(["Dòng", "Loại", "Dung Lượng", ...IPHONE_SHOPS]);
-
-  const iphoneData = data.filter((d) => d.category === "iPhone");
-  const iphoneGroups = groupByProduct(iphoneData, IPHONE_SHOPS);
-  for (const g of iphoneGroups) {
-    rows.push([
-      g.product,
-      g.type,
-      g.storage,
-      ...IPHONE_SHOPS.map((s) => g.shops[s]?.price ?? ""),
-    ]);
-  }
-
-  rows.push([]); // separator
-
-  // Android section
-  rows.push(["ANDROID"]);
-  rows.push(["Dòng", "Loại", "Dung Lượng", ...ANDROID_SHOPS]);
-
-  const androidData = data.filter((d) => d.category === "Android");
-  const androidGroups = groupByProduct(androidData, ANDROID_SHOPS);
-  for (const g of androidGroups) {
-    rows.push([
-      g.product,
-      g.type,
-      g.storage,
-      ...ANDROID_SHOPS.map((s) => g.shops[s]?.price ?? ""),
-    ]);
+  for (const category of ["iPhone", "Android"] as const) {
+    const catData = data.filter((d) => d.category === category);
+    const shops = orderShops(category, catData.map((d) => d.shop));
+    rows.push([category.toUpperCase()]);
+    rows.push(["Dòng", "Loại", "Dung Lượng", ...shops]);
+    for (const g of groupByProduct(catData, shops)) {
+      rows.push([g.product, g.type, g.storage, ...shops.map((s) => g.shops[s]?.price ?? "")]);
+    }
+    rows.push([]); // separator
   }
 
   // Clear and rewrite
