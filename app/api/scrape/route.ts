@@ -2,18 +2,19 @@ import { NextResponse } from "next/server";
 import { readPriceSheet, getLastPrices, writeHistorySheet } from "@/lib/sheets";
 import { scrapePrice } from "@/lib/scrapers";
 import { closeBrowser } from "@/lib/scrapers/browser";
-import { writeFile } from "fs/promises";
-import path from "path";
+import { readCache, writeCache, rowKey } from "@/lib/cache";
+import { LOCAL_SCRAPE_SHOPS } from "@/lib/shops";
 
 export const maxDuration = 600;
-const CACHE_FILE = path.join(process.cwd(), ".scrape-cache.json");
 
 export async function POST() {
   try {
-    const [entries, lastPrices] = await Promise.all([
+    const [entries, lastPrices, prevCache] = await Promise.all([
       readPriceSheet(),
       getLastPrices(),
+      readCache(),
     ]);
+    const prevRows = new Map(prevCache.rows.map((r) => [rowKey(r), r]));
 
     const timestamp = new Date().toISOString();
 
@@ -35,6 +36,10 @@ export async function POST() {
           // Asmart: always use sheet price (no website to scrape)
           if (entry.shop === "Asmart") {
             scrapedPrice = entry.price;
+          } else if (LOCAL_SCRAPE_SHOPS.includes(entry.shop)) {
+            // Blocked from the VPS IP: keep the last value pushed from the home machine
+            scrapedPrice = prevRows.get(rowKey(entry))?.price ?? null;
+            if (!scrapedPrice) scrapeError = "Chưa có giá — chạy Cao-gia-FPT-TGDD.bat trên máy tính";
           } else if (entry.link) {
             try {
               scrapedPrice = await scrapePrice(entry.link, { storage: entry.storage });
@@ -74,11 +79,7 @@ export async function POST() {
     const count = scrapedData.filter((d) => d.price).length;
 
     // Cache to file so /api/latest can serve it (for shared viewers without scrape access)
-    await writeFile(
-      CACHE_FILE,
-      JSON.stringify({ rows: scrapedData, timestamp, count }),
-      "utf8"
-    ).catch(() => {});
+    await writeCache({ rows: scrapedData, timestamp, count }).catch(() => {});
 
     await closeBrowser().catch(() => {});
 
