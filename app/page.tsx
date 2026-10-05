@@ -30,6 +30,7 @@ function sortStorage(a: string, b: string): number {
 export default function HomePage() {
   const [rows, setRows] = useState<PriceRow[]>([]);
   const [lastScrape, setLastScrape] = useState<string | null>(null);
+  const [localUpdatedAt, setLocalUpdatedAt] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterType>("iPhone");
   const [search, setSearch] = useState("");
   const [productFilter, setProductFilter] = useState<string[]>([]);
@@ -51,45 +52,35 @@ export default function HomePage() {
       // ignore corrupted localStorage
     }
 
-    // Fetch server cache to share data across devices
+    loadServerCache();
+  }, []);
+
+  // Server cache is the source of truth (shared across devices, and FPT/TGDĐ get
+  // merged in from the home machine without changing the scrape timestamp).
+  function loadServerCache() {
     fetch("/api/latest")
       .then((r) => r.json())
-      .then((data: { rows?: PriceRow[]; timestamp?: string }) => {
-        const serverRows = data.rows;
-        const serverTs = data.timestamp;
-        if (serverRows && serverRows.length > 0 && serverTs) {
-          setLastScrape((prev) => {
-            const isNewer = !prev || new Date(serverTs).getTime() > new Date(prev).getTime();
-            if (isNewer) {
-              setRows(serverRows);
-              try {
-                localStorage.setItem(
-                  STORAGE_KEY,
-                  JSON.stringify({ rows: serverRows, timestamp: serverTs } satisfies PersistedState)
-                );
-              } catch {}
-              return serverTs;
-            }
-            return prev;
-          });
-        }
+      .then((data: { rows?: PriceRow[]; timestamp?: string; localUpdatedAt?: string | null }) => {
+        setLocalUpdatedAt(data.localUpdatedAt ?? null);
+        if (!data.rows?.length || !data.timestamp) return;
+        setRows(data.rows);
+        setLastScrape(data.timestamp);
+        try {
+          localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify({ rows: data.rows, timestamp: data.timestamp } satisfies PersistedState)
+          );
+        } catch {}
       })
       .catch(() => {
         // ignore — fall back to localStorage only
       });
-  }, []);
+  }
 
   function handleScrapeComplete(newRows: PriceRow[], timestamp: string) {
     setRows(newRows);
     setLastScrape(timestamp);
-    try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ rows: newRows, timestamp } satisfies PersistedState)
-      );
-    } catch {
-      // localStorage might be disabled or full — silently ignore
-    }
+    loadServerCache();
   }
 
   // Compute available options from current category
@@ -149,6 +140,12 @@ export default function HomePage() {
                   dateStyle: "short",
                   timeStyle: "short",
                 })}
+                {localUpdatedAt && (
+                  <>
+                    {" · "}FPT/TGDĐ cập nhật:{" "}
+                    {new Date(localUpdatedAt).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" })}
+                  </>
+                )}
               </p>
             )}
           </div>

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readCache, writeCache, rowKey, type CachedRow } from "@/lib/cache";
+import { hasAgentKey } from "@/lib/local-agent";
 
 // POST: merge rows scraped on a home machine (shops that block the VPS IP) into the
 // shared cache. Auth: x-merge-key must equal HISTORY_SHEET_ID (present in both .env.local).
 export async function POST(req: NextRequest) {
-  if (!process.env.HISTORY_SHEET_ID || req.headers.get("x-merge-key") !== process.env.HISTORY_SHEET_ID) {
+  if (!hasAgentKey(req)) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
   const body = (await req.json()) as { rows?: CachedRow[] };
@@ -19,6 +20,8 @@ export async function POST(req: NextRequest) {
   for (const row of body.rows) {
     const i = index.get(rowKey(row));
     const old = i === undefined ? undefined : cache.rows[i];
+    // A failed scrape must not wipe a good price from an earlier run
+    if (!row.price && old?.price) continue;
     let priceChange = "";
     if (row.price && old?.price) {
       const cur = parseInt(row.price.replace(/\./g, ""), 10);
@@ -35,6 +38,7 @@ export async function POST(req: NextRequest) {
     }
   }
   cache.count = cache.rows.filter((r) => r.price).length;
+  cache.localUpdatedAt = new Date().toISOString();
   await writeCache(cache);
   return NextResponse.json({ ok: true, updated, added });
 }

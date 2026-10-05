@@ -4,6 +4,7 @@ import { scrapePrice } from "@/lib/scrapers";
 import { closeBrowser } from "@/lib/scrapers/browser";
 import { readCache, writeCache, rowKey } from "@/lib/cache";
 import { LOCAL_SCRAPE_SHOPS } from "@/lib/shops";
+import { updateAgentState } from "@/lib/local-agent";
 
 export const maxDuration = 600;
 
@@ -17,6 +18,8 @@ export async function POST() {
     const prevRows = new Map(prevCache.rows.map((r) => [rowKey(r), r]));
 
     const timestamp = new Date().toISOString();
+    // Ask the home-machine agent to scrape LOCAL_SCRAPE_SHOPS (it polls /api/local-request)
+    await updateAgentState({ requestedAt: timestamp }).catch(() => {});
 
     // Concurrency: 3 = balanced for 2GB VPS (3 Playwright pages × ~250MB ≈ 750MB)
     const BATCH_SIZE = 3;
@@ -39,7 +42,7 @@ export async function POST() {
           } else if (LOCAL_SCRAPE_SHOPS.includes(entry.shop)) {
             // Blocked from the VPS IP: keep the last value pushed from the home machine
             scrapedPrice = prevRows.get(rowKey(entry))?.price ?? null;
-            if (!scrapedPrice) scrapeError = "Chưa có giá — chạy Cao-gia-FPT-TGDD.bat trên máy tính";
+            if (!scrapedPrice) scrapeError = "Chưa có giá — máy tính cào FPT/TGDĐ chưa gửi lên";
           } else if (entry.link) {
             try {
               scrapedPrice = await scrapePrice(entry.link, { storage: entry.storage });
@@ -74,16 +77,26 @@ export async function POST() {
       scrapedData.push(...results);
     }
 
+    // The agent usually pushes FPT/TGDĐ while this long scrape is running —
+    // take local-shop rows from the latest cache rather than the start snapshot.
+    const latestCache = await readCache();
+    const latestRows = new Map(latestCache.rows.map((r) => [rowKey(r), r]));
+    for (const d of scrapedData) {
+      const fresh = LOCAL_SCRAPE_SHOPS.includes(d.shop) ? latestRows.get(rowKey(d)) : undefined;
+      if (fresh?.price) Object.assign(d, { price: fresh.price, priceChange: fresh.priceChange, scrapeError: null });
+    }
+
     await writeHistorySheet(scrapedData, timestamp);
 
     const count = scrapedData.filter((d) => d.price).length;
 
     // Cache to file so /api/latest can serve it (for shared viewers without scrape access)
-    await writeCache({ rows: scrapedData, timestamp, count }).catch(() => {});
+    const localUpdatedAt = latestCache.localUpdatedAt ?? null;
+    await writeCache({ rows: scrapedData, timestamp, count, localUpdatedAt }).catch(() => {});
 
     await closeBrowser().catch(() => {});
 
-    return NextResponse.json({ ok: true, timestamp, count, data: scrapedData });
+    return NextResponse.json({ ok: true, timestamp, count, localUpdatedAt, data: scrapedData });
   } catch (err) {
     console.error(err);
     await closeBrowser().catch(() => {});

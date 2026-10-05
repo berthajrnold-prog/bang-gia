@@ -13,6 +13,8 @@ export interface Cache {
   rows: CachedRow[];
   timestamp: string | null;
   count?: number;
+  // Last time FPT/TGDĐ prices were pushed from the home machine (/api/merge)
+  localUpdatedAt?: string | null;
 }
 
 export const rowKey = (r: { category: string; product: string; type: string; storage: string; shop: string }) =>

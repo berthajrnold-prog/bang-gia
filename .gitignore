@@ -42,4 +42,8 @@ next-env.d.ts
 
 # runtime cache
 /.scrape-cache.json
+/.local-agent.json
+/.agent-state.json
+/.agent.pid
+/local-agent.log
 /scripts/audit-result.json

@@ -13,9 +13,11 @@ console.log(`Đang cào ${entries.length} ô (${LOCAL_SCRAPE_SHOPS.join(", ")}).
 const rows = [];
 for (const e of entries) {
   let price = null;
-  try {
-    price = await scrapePrice(e.link, { storage: e.storage });
-  } catch {}
+  for (let attempt = 0; attempt < 2 && !price; attempt++) {
+    try {
+      price = await scrapePrice(e.link, { storage: e.storage });
+    } catch {}
+  }
   console.log(`${price ? "✓" : "✗"} ${e.shop} ${e.product} ${e.storage}: ${price ?? "lỗi"}`);
   rows.push({
     product: e.product, type: e.type, storage: e.storage, shop: e.shop, category: e.category,
