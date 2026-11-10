@@ -1,131 +1,112 @@
-import { chromium, type Browser } from "playwright";
-import { formatVNPrice, parseVNPrice } from "./common";
+import * as cheerio from "cheerio";
+import { formatVNPrice } from "./common";
 
-const DA_NANG_COOKIES = [
-  { name: "city", value: "da-nang", domain: ".clickbuy.com.vn", path: "/" },
-  { name: "khu_vuc", value: "da-nang", domain: ".clickbuy.com.vn", path: "/" },
-  { name: "branch", value: "da-nang", domain: ".clickbuy.com.vn", path: "/" },
-  { name: "region", value: "da-nang", domain: ".clickbuy.com.vn", path: "/" },
-];
+// ClickBuy (redesign 11/2026, "cb-" classes, behind Cloudflare: curl's TLS is rejected,
+// Node's fetch and real browsers are fine). Everything is in the static HTML:
+//   h1                                      → page's own version ("… (5G) 12GB 256GB …")
+//   li[data-v][data-price]                  → price per variant (data-v) per warranty (data-w)
+//   [data-cb-variants] li[data-id][data-aN] → variant → attribute ids (colour, storage, …)
+//   .cb-picktile[data-cb-attr]              → attribute tiles ("256GB", "Máy 95%", "Black")
+//   .cb-picktile[href]                      → other versions = other pages, each showing that
+//                                             version's lowest price
+// Rule (user): cheapest variant of the requested storage = cheapest condition/colour, free
+// warranty.
 
-export async function scrapeClickBuy(
-  url: string,
-  storage?: string
-): Promise<string | null> {
-  const browser = (globalThis as { __scraperBrowser?: Browser }).__scraperBrowser
-    ?? (await chromium.launch({ headless: true, args: ["--no-sandbox"] }));
-  if (!(globalThis as { __scraperBrowser?: Browser }).__scraperBrowser) {
-    (globalThis as { __scraperBrowser?: Browser }).__scraperBrowser = browser;
-  }
+const DA_NANG_COOKIE = "city=da-nang; khu_vuc=da-nang; branch=da-nang; region=da-nang";
 
-  const ctx = await browser.newContext({
-    locale: "vi-VN",
-    timezoneId: "Asia/Ho_Chi_Minh",
-    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+function priceIn(text: string | undefined): number | null {
+  const m = (text ?? "").match(/(\d{1,3}(?:[.,]\d{3}){2,})/);
+  if (!m) return null;
+  const n = parseInt(m[1].replace(/[.,]/g, ""), 10);
+  return n >= 1_000_000 && n <= 200_000_000 ? n : null;
+}
+
+function netOf(text: string): "4G" | "5G" | null {
+  return /\b5G\b/i.test(text) ? "5G" : /\b4G\b/i.test(text) ? "4G" : null;
+}
+
+function min(nums: Array<number | null | undefined>): number | null {
+  const xs = nums.filter((n): n is number => !!n);
+  return xs.length ? Math.min(...xs) : null;
+}
+
+export async function scrapeClickBuy(url: string, storage?: string): Promise<string | null> {
+  const res = await fetch(url, {
+    headers: { Cookie: DA_NANG_COOKIE, "Accept-Language": "vi-VN,vi;q=0.9" },
+    signal: AbortSignal.timeout(25000),
   });
-  await ctx.addCookies(DA_NANG_COOKIES);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const $ = cheerio.load(await res.text());
+  const pagePath = new URL(url).pathname;
 
-  try {
-    const page = await ctx.newPage();
-    await page.route("**/*", (route) => {
-      const t = route.request().resourceType();
-      if (["image", "font", "media", "stylesheet"].includes(t)) return route.abort();
-      return route.continue();
+  // Variant id → lowest price (free warranty).
+  const variantPrice = new Map<string, number>();
+  $("li[data-v][data-price]").each((_, el) => {
+    const id = $(el).attr("data-v")!;
+    const p = priceIn($(el).attr("data-price"));
+    if (p && (!variantPrice.has(id) || p < variantPrice.get(id)!)) variantPrice.set(id, p);
+  });
+  const variantAttrs = $("[data-cb-variants] li[data-id]")
+    .toArray()
+    .map((el) => ({
+      id: $(el).attr("data-id")!,
+      attrs: ["data-a1", "data-a2", "data-a3", "data-a4"].map((a) => $(el).attr(a)).filter((v) => v && v !== "0"),
+    }));
+
+  const tiles = $(".cb-picktile")
+    .toArray()
+    .map((el) => {
+      const href = $(el).attr("href");
+      let self = false;
+      try { self = !!href && new URL(href, url).pathname === pagePath; } catch {}
+      return { text: $(el).text().replace(/\s+/g, " ").trim(), href, self, attr: $(el).attr("data-cb-attr"), price: priceIn($(el).text()) };
     });
 
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
-    await page.waitForTimeout(1500);
+  // Cheapest variant on this page.
+  const pageMin = () =>
+    min([...variantPrice.values()]) ??
+    min(tiles.filter((t) => (!t.href || t.self) && t.price).map((t) => t.price)) ??
+    priceIn($("[data-cb-price]").first().text());
 
-    // Step 1: Find cheapest condition variant (e.g., "Máy 98%", "Máy 95%")
-    // These appear in .list-variant__item with format "Máy NN% [price]"
-    const conditions: Array<{ label: string; price: number }> = await page.evaluate(() => {
-      const variants = Array.from(document.querySelectorAll(".list-variant__item"));
-      const out: Array<{ label: string; price: number }> = [];
-      for (const v of variants) {
-        const text = (v.textContent || "").replace(/\s+/g, " ").trim();
-        const m = text.match(/^(Máy\s+\d+\+?%)\s+(\d{1,3}(?:[.,]\d{3})+)/i);
-        if (m) {
-          const n = parseInt(m[2].replace(/[.,]/g, ""), 10);
-          if (n >= 1_000_000) out.push({ label: m[1], price: n });
-        }
+  if (storage) {
+    const isTB = /TB/i.test(storage);
+    const slash = storage.match(/(\d+)\s*\/\s*(\d+)/);
+    const num = slash?.[2] ?? storage.match(/\d+/)?.[0];
+    if (num) {
+      const unit = isTB ? "TB" : "GB";
+      const storageRe = new RegExp(`(^|\\D)${num}\\s*${unit}\\b`, "i");
+      // "8/128" → RAM too, when the text states it ("8GB 128GB", "[8.128GB]", "8/128GB")
+      const ramRe = slash ? new RegExp(`(^|\\D)${slash[1]}\\s*(GB)?\\s*[./ ]\\s*${num}\\s*${unit}`, "i") : null;
+      const h1 = $("h1").first().text().replace(/\s+/g, " ").trim();
+      const wantedNet = netOf(storage) ?? netOf(h1);
+
+      const matches = (list: typeof tiles) => {
+        let m = list.filter((t) => storageRe.test(t.text));
+        if (wantedNet) m = m.filter((t) => (netOf(t.text) ?? wantedNet) === wantedNet);
+        if (ramRe && m.some((t) => ramRe.test(t.text))) m = m.filter((t) => ramRe.test(t.text));
+        return m;
+      };
+
+      // 1. Storage is selectable on this page → cheapest variant carrying that attribute.
+      const attrTiles = matches(tiles.filter((t) => t.attr));
+      if (attrTiles.length && variantAttrs.length) {
+        const ids = new Set(attrTiles.map((t) => t.attr!));
+        const p = min(variantAttrs.filter((v) => v.attrs.some((a) => ids.has(a!))).map((v) => variantPrice.get(v.id)));
+        if (p) return formatVNPrice(String(p));
       }
-      return out;
-    });
-
-    if (conditions.length > 0) {
-      const cheapest = conditions.sort((a, b) => a.price - b.price)[0];
-      await page
-        .locator(`.list-variant__item:has-text("${cheapest.label}")`)
-        .first()
-        .click({ timeout: 5000 })
-        .catch(() => {});
-      await page.waitForTimeout(1500);
+      // 2. This page is the requested version (per h1) → cheapest variant here.
+      const h1Storage = storageRe.test(h1) && (!ramRe || !/\d+\s*GB\s*\d+\s*GB/i.test(h1) || ramRe.test(h1));
+      const h1Net = netOf(h1);
+      if (h1Storage && (!wantedNet || !h1Net || h1Net === wantedNet)) {
+        const p = pageMin();
+        if (p) return formatVNPrice(String(p));
+      }
+      // 3. Another version (link tile) → that version's lowest price.
+      const p = min(matches(tiles.filter((t) => t.href && t.price)).map((t) => t.price));
+      if (p) return formatVNPrice(String(p));
     }
-
-    // Step 2: Check .related_versions__item cards for storage-specific prices
-    // (iPhone-style pages have these with data-price reflecting current condition)
-    if (storage) {
-      // Storage parsing:
-      // - "256GB" → 256
-      // - "1TB" → 1
-      // - "8/256" (Android RAM/Storage) → 256 (NOT 8 which is RAM)
-      const wantedIsTB = /TB/i.test(storage);
-      let wantedNum: string | undefined;
-      const slashMatch = storage.match(/\d+\s*\/\s*(\d+)/);
-      if (slashMatch) {
-        wantedNum = slashMatch[1];
-      } else {
-        wantedNum = storage.match(/\d+/)?.[0];
-      }
-      // Detect network: explicit 5G, explicit 4G, or default (= 4G)
-      const wantedNetwork = /\b5G\b/i.test(storage) ? "5G" : "4G";
-      if (wantedNum) {
-        const variantPrice = await page.evaluate(
-          ({ num, isTB, net }) => {
-            const cards = Array.from(document.querySelectorAll(".related_versions__item"));
-            const unit = isTB ? "TB" : "GB";
-            const storageRe = new RegExp(`\\b${num}\\s*${unit}\\b`, "i");
-            // Prefer card matching BOTH storage AND network
-            const networkRe = new RegExp(`\\(?\\b${net}\\b\\)?`, "i");
-            const matchingStorage = cards.filter((c) => storageRe.test((c.textContent || "")));
-            // Try to find one that also mentions the requested network
-            const exactMatch = matchingStorage.find((c) => networkRe.test((c.textContent || "")));
-            const target = exactMatch ?? matchingStorage[0];
-            if (!target) return null;
-            const dp = target.querySelector("[data-price]")?.getAttribute("data-price");
-            if (dp) return parseInt(dp, 10);
-            const pm = (target.textContent || "").match(/(\d{1,3}(?:[.,]\d{3})+)/);
-            if (pm) return parseInt(pm[1].replace(/[.,]/g, ""), 10);
-            return null;
-          },
-          { num: wantedNum, isTB: wantedIsTB, net: wantedNetwork }
-        );
-        if (variantPrice && variantPrice >= 1_000_000) {
-          return formatVNPrice(String(variantPrice));
-        }
-
-        // Step 3: Fallback — click storage button (.list-variant__item.check)
-        // data-name may be "256GB" or full text like "8GB 256GB" → use partial match
-        const label = wantedIsTB ? `${wantedNum}TB` : `${wantedNum}GB`;
-        const storageLocator = page.locator(`p[data-name*="${label}"]`).first();
-        if ((await storageLocator.count()) > 0) {
-          await storageLocator.click({ timeout: 5000 }).catch(() => {});
-          await page.waitForTimeout(1500);
-        }
-      }
-    }
-
-    // Step 4: Get current displayed price (main)
-    const selectors = [".product-price .js-price", ".js-price.price", ".product-price"];
-    for (const sel of selectors) {
-      const txt = await page.locator(sel).first().textContent().catch(() => null);
-      if (txt) {
-        const parsed = parseVNPrice(txt.trim());
-        if (parsed) return formatVNPrice(parsed);
-      }
-    }
-    return null;
-  } finally {
-    await ctx.close().catch(() => {});
   }
+
+  const p = pageMin();
+  return p ? formatVNPrice(String(p)) : null;
 }
