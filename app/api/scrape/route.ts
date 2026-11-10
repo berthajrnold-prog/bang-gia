@@ -42,7 +42,7 @@ export async function POST() {
           } else if (LOCAL_SCRAPE_SHOPS.includes(entry.shop)) {
             // Blocked from the VPS IP: keep the last value pushed from the home machine
             scrapedPrice = prevRows.get(rowKey(entry))?.price ?? null;
-            if (!scrapedPrice) scrapeError = "Chưa có giá — máy tính cào FPT/TGDĐ chưa gửi lên";
+            if (!scrapedPrice) scrapeError = "Chưa có giá — máy tính cào FPT/TGDĐ/Viettel chưa gửi lên";
           } else if (entry.link) {
             try {
               scrapedPrice = await scrapePrice(entry.link, { storage: entry.storage });

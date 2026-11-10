@@ -10,10 +10,10 @@ export const SHOP_ORDER: Record<Category, string[]> = {
   Android: ["Asmart", "Mobile City", "Click Buy", "Alo Việt"],
 };
 
-// Shops that block the VPS datacenter IP (Cloudflare / timeouts). They are scraped
-// from a home connection with scripts/scrape-local.mjs and pushed via /api/merge;
-// the VPS scrape skips them and keeps the last pushed values.
-export const LOCAL_SCRAPE_SHOPS = ["FPT", "TGDĐ"];
+// Shops that block the VPS datacenter IP (Cloudflare / 403 / timeouts). They are
+// scraped from a home connection by scripts/local-agent.mjs and pushed via
+// /api/merge; the VPS scrape skips them and keeps the last pushed values.
+export const LOCAL_SCRAPE_SHOPS = ["FPT", "TGDĐ", "Viettel"];
 
 export function categoryFromTitle(title: string): Category | null {
   const t = title.trim().toLowerCase();

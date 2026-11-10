@@ -1,4 +1,4 @@
-// Scrape shops that block the VPS IP (FPT, TGDĐ) from this machine and push to the VPS.
+// Scrape shops that block the VPS IP (LOCAL_SCRAPE_SHOPS: FPT, TGDĐ, Viettel) from this machine and push to the VPS.
 // Run: double-click Cao-gia-FPT-TGDD.bat  (or: npx tsx --env-file=.env.local scripts/scrape-local.mjs)
 import { readPriceSheet } from "../lib/sheets.ts";
 import { scrapePrice } from "../lib/scrapers/index.ts";

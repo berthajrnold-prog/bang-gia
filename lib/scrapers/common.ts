@@ -26,7 +26,21 @@ export function parseVNPrice(raw: string): string | null {
 }
 
 // JSON-LD: most reliable — many VN shops embed Product structured data
-function extractFromJsonLd(html: string): string | null {
+function offerPrice(offers: unknown): string | null {
+  if (!offers) return null;
+  for (const offer of (Array.isArray(offers) ? offers : [offers]) as Array<Record<string, unknown>>) {
+    const price = offer?.price ?? offer?.lowPrice;
+    if (price) {
+      const n = String(price).replace(/[^0-9]/g, "");
+      if (n.length >= 6) return n;
+    }
+  }
+  return null;
+}
+
+// `pageUrl`: when the page is a ProductGroup (TGDĐ: one entry per colour, each with its
+// own ?code= url), prefer the variant whose url matches the sheet link; else the lowest.
+function extractFromJsonLd(html: string, pageUrl?: string): string | null {
   const scriptRe = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
   let m;
   while ((m = scriptRe.exec(html)) !== null) {
@@ -48,16 +62,18 @@ function extractFromJsonLd(html: string): string | null {
         const obj = item as Record<string, unknown>;
         const type = obj["@type"];
         if (type === "Product" || type === "ItemPage") {
-          const offers = obj.offers;
-          if (!offers) continue;
-          const offerList = Array.isArray(offers) ? offers : [offers];
-          for (const offer of offerList as Array<Record<string, unknown>>) {
-            const price = offer?.price ?? offer?.lowPrice;
-            if (price) {
-              const n = String(price).replace(/[^0-9]/g, "");
-              if (n.length >= 6) return n;
-            }
+          const price = offerPrice(obj.offers);
+          if (price) return price;
+        }
+        if (type === "ProductGroup" && Array.isArray(obj.hasVariant)) {
+          const variants = obj.hasVariant as Array<Record<string, unknown>>;
+          const exact = pageUrl && variants.find((v) => typeof v.url === "string" && v.url === pageUrl);
+          if (exact) {
+            const price = offerPrice(exact.offers);
+            if (price) return price;
           }
+          const prices = variants.map((v) => offerPrice(v.offers)).filter((p): p is string => !!p);
+          if (prices.length) return String(Math.min(...prices.map(Number)));
         }
       }
     } catch {}
@@ -65,14 +81,13 @@ function extractFromJsonLd(html: string): string | null {
   return null;
 }
 
-// Plain HTTP fetch + JSON-LD price. For shops whose bot protection blocks headless
-// Chromium but serves normal HTML to regular requests (e.g. Viettel Store / Akamai).
-// Plain fetch with Node's own default User-Agent: no browser impersonation.
-// Viettel's robots.txt allows product pages; it 403s spoofed-browser requests.
+// Plain fetch with Node's own default User-Agent + JSON-LD price. No browser
+// impersonation: FPT/TGDĐ/Viettel allow product pages in robots.txt but 403
+// requests that claim to be Chrome (and headless Chromium).
 export async function scrapeJsonLdViaHttp(url: string): Promise<string | null> {
   const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const price = extractFromJsonLd(await res.text());
+  const price = extractFromJsonLd(await res.text(), url);
   return price ? formatVNPrice(price) : null;
 }
 

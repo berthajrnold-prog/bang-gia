@@ -143,7 +143,7 @@ export default function HomePage() {
                 })}
                 {localUpdatedAt && (
                   <>
-                    {" · "}FPT/TGDĐ cập nhật:{" "}
+                    {" · "}FPT/TGDĐ/Viettel cập nhật:{" "}
                     {new Date(localUpdatedAt).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" })}
                   </>
                 )}
