@@ -10,7 +10,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ExternalLink, TrendingDown, TrendingUp, Minus } from "lucide-react";
-import { orderShops } from "@/lib/shops";
+import { orderShops, type Category } from "@/lib/shops";
+
+const CATEGORY_LABELS: Record<Category, string> = {
+  "Chính hãng": "✅ Chính hãng",
+  iPhone: "🍎 iPhone",
+  Android: "🤖 Android",
+};
 
 export interface PriceRow {
   product: string;
@@ -127,10 +133,13 @@ function ProductTable({
   category,
 }: {
   rows: PriceRow[];
-  category: "iPhone" | "Android";
+  category: Category;
 }) {
-  const shops = orderShops(category, rows.filter((r) => r.category === category).map((r) => r.shop));
+  const inCategory = rows.filter((r) => r.category === category);
+  const shops = orderShops(category, inCategory.map((r) => r.shop));
   const grouped = groupRows(rows, category, shops);
+  // The Chính hãng section has no "Loại" column in the sheet
+  const hasType = inCategory.some((r) => r.type);
 
   if (grouped.length === 0) {
     return (
@@ -146,7 +155,7 @@ function ProductTable({
         <TableHeader>
           <TableRow className="bg-muted/50">
             <TableHead className="w-36">Sản phẩm</TableHead>
-            <TableHead className="w-24">Loại</TableHead>
+            {hasType && <TableHead className="w-24">Loại</TableHead>}
             <TableHead className="w-24">Bộ nhớ</TableHead>
             {shops.map((s) => (
               <TableHead key={s} className="min-w-36">
@@ -161,11 +170,13 @@ function ProductTable({
             return (
               <TableRow key={`${g.product}-${g.type}-${g.storage}`}>
                 <TableCell className="font-medium">{g.product}</TableCell>
-                <TableCell>
-                  <Badge variant="outline" className="text-xs">
-                    {g.type}
-                  </Badge>
-                </TableCell>
+                {hasType && (
+                  <TableCell>
+                    <Badge variant="outline" className="text-xs">
+                      {g.type}
+                    </Badge>
+                  </TableCell>
+                )}
                 <TableCell className="text-sm">{g.storage}</TableCell>
                 {shops.map((shop) => (
                   <TableCell key={shop}>
@@ -193,7 +204,7 @@ export function PriceTable({
   search,
 }: {
   rows: PriceRow[];
-  filter: "iPhone" | "Android";
+  filter: Category;
   search: string;
 }) {
   const filtered = rows.filter((r) => {
@@ -206,7 +217,7 @@ export function PriceTable({
     <div className="space-y-8">
       <section>
         <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-          {filter === "iPhone" ? "🍎 iPhone" : "🤖 Android"}
+          {CATEGORY_LABELS[filter]}
         </h2>
         <ProductTable rows={filtered} category={filter} />
       </section>

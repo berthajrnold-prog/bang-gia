@@ -1,5 +1,5 @@
 import { google } from "googleapis";
-import { orderShops } from "./shops";
+import { CATEGORIES, categoryFromTitle, orderShops, type Category } from "./shops";
 
 export interface PriceEntry {
   product: string;
@@ -8,7 +8,7 @@ export interface PriceEntry {
   shop: string;
   price: string | null;
   link: string | null;
-  category: "iPhone" | "Android";
+  category: Category;
 }
 
 export interface HistoryRow {
@@ -24,7 +24,7 @@ export interface HistoryRow {
 
 // Rows to skip when parsing the source sheet
 const SKIP_VALUES = new Set([
-  "", "dòng", "loại", "dung lượng", "iphone", "android",
+  "", "dòng", "loại", "dung lượng", "iphone", "android", "chính hãng",
   "hàng mới", "hàng cũ", "flash sale", "khuyến mãi", "sắp về",
 ]);
 
@@ -68,34 +68,37 @@ export async function readPriceSheet(): Promise<PriceEntry[]> {
   const rows = sheet?.data?.[0]?.rowData ?? [];
   const entries: PriceEntry[] = [];
 
-  // Locate sections from the header row ("Dòng | Loại | Dung Lượng | shop… ")
+  // Locate sections from the header row ("Dòng | [Loại] | Dung Lượng | shop… ")
   // instead of hardcoding column numbers, so added shop columns don't break parsing.
+  // Section title (row above the header, e.g. "CHÍNH HÃNG") decides the category;
+  // the "Loại" column is optional (the Chính hãng section has none).
   const headerIdx = rows.findIndex((r) =>
     (r.values ?? []).some((c) => (c.formattedValue ?? "").trim().toLowerCase() === "dòng")
   );
   if (headerIdx < 0) return entries;
   const header = (rows[headerIdx].values ?? []).map((c) => (c.formattedValue ?? "").trim());
-  const titles = (rows[headerIdx - 1]?.values ?? []).map((c) => (c.formattedValue ?? "").trim().toLowerCase());
+  const titles = (rows[headerIdx - 1]?.values ?? []).map((c) => (c.formattedValue ?? "").trim());
 
   const sections = header
     .map((h, i) => (h.toLowerCase() === "dòng" ? i : -1))
     .filter((i) => i >= 0)
     .map((start, n) => {
+      const hasType = header[start + 1]?.toLowerCase() === "loại";
+      const storageCol = hasType ? start + 2 : start + 1;
       const shops: Array<{ name: string; col: number }> = [];
-      for (let c = start + 3; c < header.length && header[c] && header[c].toLowerCase() !== "dòng"; c++) {
+      for (let c = storageCol + 1; c < header.length && header[c] && header[c].toLowerCase() !== "dòng"; c++) {
         shops.push({ name: header[c], col: c });
       }
-      const category: "iPhone" | "Android" =
-        titles[start] === "android" ? "Android" : titles[start] === "iphone" ? "iPhone" : n === 0 ? "iPhone" : "Android";
-      return { start, shops, category, lastProduct: "", lastType: "" };
+      const category = categoryFromTitle(titles[start] ?? "") ?? CATEGORIES[Math.min(n, CATEGORIES.length - 1)];
+      return { start, hasType, storageCol, shops, category, lastProduct: "", lastType: "" };
     });
 
   for (const row of rows.slice(headerIdx + 1)) {
     const cells = row.values ?? [];
     for (const sec of sections) {
       const rawProduct = cells[sec.start]?.formattedValue ?? "";
-      const rawType = cells[sec.start + 1]?.formattedValue ?? "";
-      const storage = cells[sec.start + 2]?.formattedValue ?? "";
+      const rawType = sec.hasType ? (cells[sec.start + 1]?.formattedValue ?? "") : "";
+      const storage = cells[sec.storageCol]?.formattedValue ?? "";
 
       // Carry forward merged cell values (same product spans multiple rows)
       if (rawProduct && !isSkippable(rawProduct)) sec.lastProduct = rawProduct;
@@ -209,13 +212,15 @@ async function writeCurrentPricesTab(
   rows.push([`Cập nhật lúc: ${new Date(timestamp).toLocaleString("vi-VN")}`]);
   rows.push([]); // empty separator
 
-  for (const category of ["iPhone", "Android"] as const) {
+  for (const category of CATEGORIES) {
     const catData = data.filter((d) => d.category === category);
+    if (catData.length === 0) continue;
     const shops = orderShops(category, catData.map((d) => d.shop));
+    const hasType = catData.some((d) => d.type);
     rows.push([category.toUpperCase()]);
-    rows.push(["Dòng", "Loại", "Dung Lượng", ...shops]);
+    rows.push(["Dòng", ...(hasType ? ["Loại"] : []), "Dung Lượng", ...shops]);
     for (const g of groupByProduct(catData, shops)) {
-      rows.push([g.product, g.type, g.storage, ...shops.map((s) => g.shops[s]?.price ?? "")]);
+      rows.push([g.product, ...(hasType ? [g.type] : []), g.storage, ...shops.map((s) => g.shops[s]?.price ?? "")]);
     }
     rows.push([]); // separator
   }

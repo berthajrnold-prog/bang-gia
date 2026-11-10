@@ -6,8 +6,9 @@ import { ScrapeButton } from "@/components/ScrapeButton";
 import { FilterDropdown } from "@/components/FilterDropdown";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { CATEGORIES, type Category } from "@/lib/shops";
 
-type FilterType = "iPhone" | "Android";
+type FilterType = Category;
 
 const STORAGE_KEY = "bang-gia:last-scrape";
 
@@ -155,7 +156,7 @@ export default function HomePage() {
         {/* Category tabs */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex gap-1 rounded-md border p-1">
-            {(["iPhone", "Android"] as FilterType[]).map((f) => (
+            {CATEGORIES.map((f) => (
               <Button
                 key={f}
                 variant={filter === f ? "default" : "ghost"}
@@ -190,12 +191,14 @@ export default function HomePage() {
               selected={productFilter}
               onChange={setProductFilter}
             />
-            <FilterDropdown
-              label="Loại"
-              options={types}
-              selected={typeFilter}
-              onChange={setTypeFilter}
-            />
+            {types.some(Boolean) && (
+              <FilterDropdown
+                label="Loại"
+                options={types}
+                selected={typeFilter}
+                onChange={setTypeFilter}
+              />
+            )}
             <FilterDropdown
               label="Dung lượng"
               options={storages}
