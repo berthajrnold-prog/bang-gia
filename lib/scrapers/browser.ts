@@ -1,4 +1,4 @@
-import { chromium, type Browser, type BrowserContext } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 
 // Singleton: keep browser alive across requests for speed.
 // Process exit will clean it up.
@@ -17,6 +17,20 @@ async function getBrowser(): Promise<Browser> {
   });
   globalThis.__scraperBrowser = browser;
   return browser;
+}
+
+// The VPS network intermittently fails TLS to the shops' CDNs (net::ERR_CERT_COMMON_NAME_INVALID,
+// connection resets) while the same page loads fine seconds later → retry navigation.
+export async function gotoWithRetry(page: Page, url: string, attempts = 3): Promise<void> {
+  for (let i = 1; ; i++) {
+    try {
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+      return;
+    } catch (err) {
+      if (i >= attempts || !/net::ERR_|Timeout/i.test(String(err))) throw err;
+      await page.waitForTimeout(1500 * i);
+    }
+  }
 }
 
 export interface FetchOptions {
@@ -45,7 +59,7 @@ async function tryFetch(url: string, options: FetchOptions): Promise<string> {
       );
     }
     const page = await ctx.newPage();
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await gotoWithRetry(page, url);
     if (options.waitForSelector) {
       await page.waitForSelector(options.waitForSelector, { timeout: 8000 }).catch(() => {});
     }

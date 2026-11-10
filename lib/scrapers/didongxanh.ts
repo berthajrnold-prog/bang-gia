@@ -1,4 +1,4 @@
-import { fetchHtmlWithBrowser } from "./browser";
+import { fetchHtmlWithBrowser, gotoWithRetry } from "./browser";
 import { formatVNPrice } from "./common";
 import { chromium } from "playwright";
 
@@ -35,7 +35,7 @@ export async function scrapeDidongxanh(url: string, _storage?: string): Promise<
       return route.continue();
     });
 
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await gotoWithRetry(page, url);
     await page.waitForSelector(".product-price .text-price", { timeout: 10000 }).catch(() => {});
     await page.waitForTimeout(1500);
 

@@ -1,3 +1,4 @@
+import { gotoWithRetry } from "./browser";
 import { chromium, type Browser } from "playwright";
 import { formatVNPrice, parseVNPrice } from "./common";
 
@@ -36,7 +37,7 @@ export async function scrapeMobileCity(url: string, storage?: string): Promise<s
       return route.continue();
     });
 
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await gotoWithRetry(page, url);
     await page.waitForTimeout(1500);
 
     // Try to click matching storage button if requested

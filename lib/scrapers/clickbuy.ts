@@ -31,12 +31,25 @@ function min(nums: Array<number | null | undefined>): number | null {
 }
 
 export async function scrapeClickBuy(url: string, storage?: string): Promise<string | null> {
-  const res = await fetch(url, {
-    headers: { Cookie: DA_NANG_COOKIE, "Accept-Language": "vi-VN,vi;q=0.9" },
-    signal: AbortSignal.timeout(25000),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const $ = cheerio.load(await res.text());
+  // Cloudflare in front of the site occasionally resets connections or serves an
+  // interstitial when several requests run in parallel → retry with backoff.
+  let html = "";
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: { Cookie: DA_NANG_COOKIE, "Accept-Language": "vi-VN,vi;q=0.9" },
+        signal: AbortSignal.timeout(25000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      html = await res.text();
+      if (html.includes("cb-picktile") || html.includes("data-cb-price")) break;
+      throw new Error("ClickBuy: product markup missing (interstitial?)");
+    } catch (err) {
+      if (attempt >= 3) throw err;
+      await new Promise((r) => setTimeout(r, 2000 * attempt));
+    }
+  }
+  const $ = cheerio.load(html);
   const pagePath = new URL(url).pathname;
 
   // Variant id → lowest price (free warranty).
