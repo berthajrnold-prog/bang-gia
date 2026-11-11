@@ -6,7 +6,7 @@ import { ScrapeButton } from "@/components/ScrapeButton";
 import { FilterDropdown } from "@/components/FilterDropdown";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { CATEGORIES, type Category } from "@/lib/shops";
+import { CATEGORIES, type Category, type ShopOrder } from "@/lib/shops";
 
 type FilterType = Category;
 
@@ -15,6 +15,7 @@ const STORAGE_KEY = "bang-gia:last-scrape";
 interface PersistedState {
   rows: PriceRow[];
   timestamp: string;
+  shops?: ShopOrder;
 }
 
 // Sort storage values naturally: 64GB < 128GB < 256GB < 512GB < 1TB
@@ -32,6 +33,7 @@ export default function HomePage() {
   const [rows, setRows] = useState<PriceRow[]>([]);
   const [lastScrape, setLastScrape] = useState<string | null>(null);
   const [localUpdatedAt, setLocalUpdatedAt] = useState<string | null>(null);
+  const [shopOrder, setShopOrder] = useState<ShopOrder | undefined>(undefined);
   const [filter, setFilter] = useState<FilterType>("iPhone");
   const [search, setSearch] = useState("");
   const [productFilter, setProductFilter] = useState<string[]>([]);
@@ -47,6 +49,7 @@ export default function HomePage() {
         if (parsed.rows && parsed.timestamp) {
           setRows(parsed.rows);
           setLastScrape(parsed.timestamp);
+          setShopOrder(parsed.shops);
         }
       }
     } catch {
@@ -61,15 +64,16 @@ export default function HomePage() {
   function loadServerCache() {
     fetch("/api/latest")
       .then((r) => r.json())
-      .then((data: { rows?: PriceRow[]; timestamp?: string; localUpdatedAt?: string | null }) => {
+      .then((data: { rows?: PriceRow[]; timestamp?: string; localUpdatedAt?: string | null; shops?: ShopOrder }) => {
         setLocalUpdatedAt(data.localUpdatedAt ?? null);
         if (!data.rows?.length || !data.timestamp) return;
         setRows(data.rows);
         setLastScrape(data.timestamp);
+        setShopOrder(data.shops);
         try {
           localStorage.setItem(
             STORAGE_KEY,
-            JSON.stringify({ rows: data.rows, timestamp: data.timestamp } satisfies PersistedState)
+            JSON.stringify({ rows: data.rows, timestamp: data.timestamp, shops: data.shops } satisfies PersistedState)
           );
         } catch {}
       })
@@ -143,7 +147,7 @@ export default function HomePage() {
                 })}
                 {localUpdatedAt && (
                   <>
-                    {" · "}FPT/TGDĐ/Viettel cập nhật:{" "}
+                    {" · "}TGDĐ/Viettel cập nhật:{" "}
                     {new Date(localUpdatedAt).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" })}
                   </>
                 )}
@@ -244,7 +248,7 @@ export default function HomePage() {
             <p className="text-sm mt-1">Bấm &quot;Cào giá ngay&quot; để lấy giá từ các cửa hàng.</p>
           </div>
         ) : (
-          <PriceTable rows={filteredRows} filter={filter} search="" />
+          <PriceTable rows={filteredRows} filter={filter} search="" shopOrder={shopOrder} />
         )}
       </div>
     </div>

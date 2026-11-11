@@ -1,5 +1,5 @@
 // Home-machine agent: polls the VPS every 30s. When someone presses "Cào giá ngay",
-// it scrapes LOCAL_SCRAPE_SHOPS (FPT/TGDĐ/Viettel, which block the VPS IP) via scripts/scrape-local.mjs.
+// it scrapes LOCAL_SCRAPE_SHOPS (TGDĐ/Viettel, which block the VPS IP) via scripts/scrape-local.mjs.
 // Started hidden at Windows login by Cai-dat-tu-dong-cao.bat; log: local-agent.log
 import { spawn } from "child_process";
 import { readFileSync, writeFileSync, existsSync } from "fs";
@@ -49,7 +49,7 @@ for (;;) {
     const res = await fetch(`${VPS_URL}/api/local-request`, { headers: { "x-merge-key": KEY } });
     const { requestedAt } = await res.json();
     if (requestedAt && requestedAt !== lastHandled) {
-      log(`Có yêu cầu cào lúc ${requestedAt} → cào FPT/TGDĐ/Viettel`);
+      log(`Có yêu cầu cào lúc ${requestedAt} → cào TGDĐ/Viettel`);
       await runScrape();
       lastHandled = requestedAt;
       writeFileSync(STATE_FILE, JSON.stringify({ lastHandled }));

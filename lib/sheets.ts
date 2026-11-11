@@ -1,5 +1,5 @@
 import { google } from "googleapis";
-import { CATEGORIES, categoryFromTitle, orderShops, type Category } from "./shops";
+import { CATEGORIES, categoryFromTitle, orderShops, type Category, type ShopOrder } from "./shops";
 
 export interface PriceEntry {
   product: string;
@@ -55,6 +55,11 @@ function getAuth() {
 }
 
 export async function readPriceSheet(): Promise<PriceEntry[]> {
+  return (await readSheet()).entries;
+}
+
+// Entries plus the shop columns of each section, in sheet order (drives the UI columns).
+export async function readSheet(): Promise<{ entries: PriceEntry[]; shops: ShopOrder }> {
   const auth = getAuth();
   const sheets = google.sheets({ version: "v4", auth });
   const sheetId = process.env.SOURCE_SHEET_ID!;
@@ -75,7 +80,7 @@ export async function readPriceSheet(): Promise<PriceEntry[]> {
   const headerIdx = rows.findIndex((r) =>
     (r.values ?? []).some((c) => (c.formattedValue ?? "").trim().toLowerCase() === "dòng")
   );
-  if (headerIdx < 0) return entries;
+  if (headerIdx < 0) return { entries, shops: {} };
   const header = (rows[headerIdx].values ?? []).map((c) => (c.formattedValue ?? "").trim());
   const titles = (rows[headerIdx - 1]?.values ?? []).map((c) => (c.formattedValue ?? "").trim());
 
@@ -125,7 +130,9 @@ export async function readPriceSheet(): Promise<PriceEntry[]> {
     }
   }
 
-  return entries;
+  const shops: ShopOrder = {};
+  for (const sec of sections) shops[sec.category] = sec.shops.map((s) => s.name);
+  return { entries, shops };
 }
 
 // Get last scraped prices for comparison (from Log tab)

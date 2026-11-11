@@ -10,7 +10,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ExternalLink, TrendingDown, TrendingUp, Minus } from "lucide-react";
-import { orderShops, type Category } from "@/lib/shops";
+import { orderShops, type Category, type ShopOrder } from "@/lib/shops";
 
 const CATEGORY_LABELS: Record<Category, string> = {
   "Chính hãng": "✅ Chính hãng",
@@ -131,12 +131,14 @@ function PriceCell({
 function ProductTable({
   rows,
   category,
+  shopOrder,
 }: {
   rows: PriceRow[];
   category: Category;
+  shopOrder?: ShopOrder;
 }) {
   const inCategory = rows.filter((r) => r.category === category);
-  const shops = orderShops(category, inCategory.map((r) => r.shop));
+  const shops = orderShops(category, inCategory.map((r) => r.shop), shopOrder);
   const grouped = groupRows(rows, category, shops);
   // The Chính hãng section has no "Loại" column in the sheet
   const hasType = inCategory.some((r) => r.type);
@@ -202,10 +204,12 @@ export function PriceTable({
   rows,
   filter,
   search,
+  shopOrder,
 }: {
   rows: PriceRow[];
   filter: Category;
   search: string;
+  shopOrder?: ShopOrder;
 }) {
   const filtered = rows.filter((r) => {
     if (r.category !== filter) return false;
@@ -219,7 +223,7 @@ export function PriceTable({
         <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
           {CATEGORY_LABELS[filter]}
         </h2>
-        <ProductTable rows={filtered} category={filter} />
+        <ProductTable rows={filtered} category={filter} shopOrder={shopOrder} />
       </section>
     </div>
   );

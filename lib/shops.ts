@@ -5,7 +5,7 @@ export const CATEGORIES = ["Chính hãng", "iPhone", "Android"] as const;
 export type Category = (typeof CATEGORIES)[number];
 
 export const SHOP_ORDER: Record<Category, string[]> = {
-  "Chính hãng": ["Asmart", "Mobile City", "Click Buy", "Shopdunk", "TGDĐ", "Di Động Việt", "Viettel", "FPT", "Chợ lớn"],
+  "Chính hãng": ["Asmart", "Mobile City", "Click Buy", "Shopdunk", "TGDĐ", "Di Động Việt", "Viettel"],
   iPhone: ["Asmart", "Di Động Xanh", "Click Buy", "Chung Mobile"],
   Android: ["Asmart", "Mobile City", "Click Buy", "Alo Việt"],
 };
@@ -13,15 +13,19 @@ export const SHOP_ORDER: Record<Category, string[]> = {
 // Shops that block the VPS datacenter IP (Cloudflare / 403 / timeouts). They are
 // scraped from a home connection by scripts/local-agent.mjs and pushed via
 // /api/merge; the VPS scrape skips them and keeps the last pushed values.
-export const LOCAL_SCRAPE_SHOPS = ["FPT", "TGDĐ", "Viettel"];
+export const LOCAL_SCRAPE_SHOPS = ["TGDĐ", "Viettel"];
 
 export function categoryFromTitle(title: string): Category | null {
   const t = title.trim().toLowerCase();
   return CATEGORIES.find((c) => c.toLowerCase() === t) ?? null;
 }
 
-export function orderShops(category: Category, present: Iterable<string>): string[] {
-  const known = SHOP_ORDER[category];
+// Column order = the sheet's header order when known (`sheetOrder`, stored with the
+// scrape), otherwise the fallback list above. Shops seen in the data but missing from
+// the order are appended so nothing is hidden.
+export type ShopOrder = Partial<Record<Category, string[]>>;
+export function orderShops(category: Category, present: Iterable<string>, sheetOrder?: ShopOrder): string[] {
+  const known = sheetOrder?.[category] ?? SHOP_ORDER[category];
   const extra = [...new Set(present)].filter((s) => !known.includes(s));
   return [...known, ...extra];
 }

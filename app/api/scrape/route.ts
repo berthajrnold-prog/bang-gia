@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readPriceSheet, getLastPrices, writeHistorySheet } from "@/lib/sheets";
+import { readSheet, getLastPrices, writeHistorySheet } from "@/lib/sheets";
 import { scrapePrice } from "@/lib/scrapers";
 import { closeBrowser } from "@/lib/scrapers/browser";
 import { readCache, writeCache, rowKey } from "@/lib/cache";
@@ -10,8 +10,8 @@ export const maxDuration = 600;
 
 export async function POST() {
   try {
-    const [entries, lastPrices, prevCache] = await Promise.all([
-      readPriceSheet(),
+    const [{ entries, shops }, lastPrices, prevCache] = await Promise.all([
+      readSheet(),
       getLastPrices(),
       readCache(),
     ]);
@@ -42,7 +42,7 @@ export async function POST() {
           } else if (LOCAL_SCRAPE_SHOPS.includes(entry.shop)) {
             // Blocked from the VPS IP: keep the last value pushed from the home machine
             scrapedPrice = prevRows.get(rowKey(entry))?.price ?? null;
-            if (!scrapedPrice) scrapeError = "Chưa có giá — máy tính cào FPT/TGDĐ/Viettel chưa gửi lên";
+            if (!scrapedPrice) scrapeError = "Chưa có giá — máy tính cào TGDĐ/Viettel chưa gửi lên";
           } else if (entry.link) {
             try {
               scrapedPrice = await scrapePrice(entry.link, { storage: entry.storage });
@@ -92,11 +92,11 @@ export async function POST() {
 
     // Cache to file so /api/latest can serve it (for shared viewers without scrape access)
     const localUpdatedAt = latestCache.localUpdatedAt ?? null;
-    await writeCache({ rows: scrapedData, timestamp, count, localUpdatedAt }).catch(() => {});
+    await writeCache({ rows: scrapedData, timestamp, count, localUpdatedAt, shops }).catch(() => {});
 
     await closeBrowser().catch(() => {});
 
-    return NextResponse.json({ ok: true, timestamp, count, localUpdatedAt, data: scrapedData });
+    return NextResponse.json({ ok: true, timestamp, count, localUpdatedAt, shops, data: scrapedData });
   } catch (err) {
     console.error(err);
     await closeBrowser().catch(() => {});

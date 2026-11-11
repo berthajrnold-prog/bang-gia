@@ -13,8 +13,10 @@ export interface Cache {
   rows: CachedRow[];
   timestamp: string | null;
   count?: number;
-  // Last time FPT/TGDĐ prices were pushed from the home machine (/api/merge)
+  // Last time TGDĐ/Viettel prices were pushed from the home machine (/api/merge)
   localUpdatedAt?: string | null;
+  // Shop columns per category in sheet order (set by /api/scrape)
+  shops?: Record<string, string[]>;
 }
 
 export const rowKey = (r: { category: string; product: string; type: string; storage: string; shop: string }) =>
