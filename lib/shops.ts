@@ -5,7 +5,7 @@ export const CATEGORIES = ["Chính hãng", "iPhone", "Android"] as const;
 export type Category = (typeof CATEGORIES)[number];
 
 export const SHOP_ORDER: Record<Category, string[]> = {
-  "Chính hãng": ["Asmart", "Mobile City", "Click Buy", "Shopdunk", "TGDĐ", "FPT", "Viettel", "Chợ lớn"],
+  "Chính hãng": ["Asmart", "Mobile City", "Click Buy", "Shopdunk", "TGDĐ", "Di Động Việt", "Viettel", "FPT", "Chợ lớn"],
   iPhone: ["Asmart", "Di Động Xanh", "Click Buy", "Chung Mobile"],
   Android: ["Asmart", "Mobile City", "Click Buy", "Alo Việt"],
 };
